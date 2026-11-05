@@ -1,0 +1,77 @@
+PARCS word count | PARALLEL | workers: 2
+files: 124 | text: 130.3 MB | words: 22,603,026 | unique words: 105,289
+
+TIME, s
+  split (master)            0.856
+  map (workers)            10.318
+  reduce (master)           0.135
+  TOTAL                    11.309
+
+WORKERS (serializer: marshal)
+  10.132.0.4        62 files     65.1 MB    11,301,513 words   compute   8.691 s
+  10.132.0.3        62 files     65.1 MB    11,301,513 words   compute   8.245 s
+  transfer + RPC overhead ~ 1.627 s (map time - busiest worker)
+
+TOP-30 WORDS
+   1. the              1,236,296
+   2. and              819,378
+   3. of               652,626
+   4. to               597,790
+   5. a                439,666
+   6. in               363,540
+   7. i                361,162
+   8. that             315,054
+   9. he               307,504
+  10. it               248,412
+  11. his              247,072
+  12. was              230,090
+  13. you              206,068
+  14. with             190,800
+  15. is               183,948
+  16. for              179,990
+  17. not              172,666
+  18. as               167,584
+  19. had              146,802
+  20. but              145,750
+  21. be               140,888
+  22. him              138,804
+  23. my               136,178
+  24. her              130,916
+  25. at               129,784
+  26. on               121,984
+  27. have             120,294
+  28. me               112,980
+  29. all              111,304
+  30. this             106,406
+
+TOP-30 WORDS WITHOUT STOP-WORDS
+   1. man              51,282
+   2. shall            46,844
+   3. mr               37,132
+   4. like             36,248
+   5. good             35,170
+   6. thou             34,844
+   7. time             34,552
+   8. well             34,372
+   9. know             34,094
+  10. come             34,090
+  11. see              31,896
+  12. before           30,778
+  13. should           30,614
+  14. such             30,292
+  15. say              29,970
+  16. himself          28,468
+  17. little           28,430
+  18. go               28,014
+  19. may              27,606
+  20. made             27,412
+  21. must             27,298
+  22. lord             27,068
+  23. two              26,406
+  24. down             26,376
+  25. here             25,998
+  26. thy              25,374
+  27. much             25,238
+  28. first            24,780
+  29. great            24,698
+  30. old              24,568

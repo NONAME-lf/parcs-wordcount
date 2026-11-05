@@ -5,7 +5,7 @@
 Тема 4.1 «Паралельна обробка файлів (підрахунок частоти слів)».
 Платформа: PARCS-Python ([Hummer12007/parcs-python](https://github.com/Hummer12007/parcs-python)), Google Compute Engine, 1 master + 4 workers.
 
-**GitHub:** https://github.com/ЛОГІН/parcs-wordcount  <!-- заміни на своє посилання -->
+**GitHub:** https://github.com/NONAME-lf/parcs-wordcount  <!-- заміни на своє посилання -->
 
 ---
 
@@ -57,6 +57,7 @@ flowchart LR
 | `SyntaxError` на f-рядках тощо | образ PARCS зібраний у 2018 році на Debian stretch і працює на Python 2.7 | код сумісний з Python 2.7 і 3 (`from __future__ import ...`, без f-рядків) |
 | Спотворені не-ASCII слова, повільна передача даних | серіалізатор serpent у Python 2.7 перетворює bytes на latin-1 unicode і повільний | серіалізатор marshal |
 | Якщо збирати образ самому: `apt-get update` падає з 404, `pip install` ставить несумісні версії | Debian stretch застарів, його репозиторії перенесено в архів; нові Flask і py-cpuinfo не підтримують Python 2.7, а PARCS читає ключ `cpuinfo['brand']`, якого в нових py-cpuinfo немає | startup-script сам збирає запасний образ на `python:2.7.18` із зафіксованими версіями (Pyro4 4.82, Flask 1.1.4, py-cpuinfo 5.0.0, netifaces 0.11.0, requests 2.27.1), якщо готовий образ недоступний |
+| Не вдається створити ВМ: `ZONE_RESOURCE_POOL_EXHAUSTED` | на момент роботи в зонах europe-north1-a, -b і -c не було вільних машин `n1-standard-1` | кластер створено в зоні `europe-west1-b`; у гайді є команда, яка сама перебирає зони |
 | Оригінальний гайд відкриває всі порти всім в інтернеті | правило firewall `--rules=all --source-ranges=0.0.0.0/0` | ззовні відкрито лише `tcp:8080` і лише на master; трафік між ВМ дозволяє стандартне правило `default-allow-internal` |
 
 ---
@@ -68,11 +69,11 @@ flowchart LR
 ### 3.1. Кластер: master + 4 workers
 
 ```bash
-git clone https://github.com/ЛОГІН/parcs-wordcount && cd parcs-wordcount
+git clone https://github.com/NONAME-lf/parcs-wordcount && cd parcs-wordcount
 
 gcloud config set project ID_ПРОЄКТУ
 gcloud services enable compute.googleapis.com
-gcloud config set compute/zone europe-north1-a
+gcloud config set compute/zone europe-west1-b
 
 # ззовні відкриваємо лише веб-інтерфейс master (порт 8080)
 gcloud compute firewall-rules create parcs-ui --network=default \
@@ -109,8 +110,8 @@ python3 scripts/download_books.py   # ~60 книжок -> input.zip (~140 МБ �
 
 ### 3.3. Запуск через веб-інтерфейс (демонстрація)
 
-1. Відкрий `http://MASTER_EXT:8080` → **Workers**: видно 4 воркери з IP і CPU.
-2. Щоб запустити на N воркерах, на сторінці Workers вимкни (Disable) зайвих.
+1. Відкрий `http://MASTER_EXT:8080` → **Nodes**: видно 4 воркери з IP і CPU.
+2. Щоб запустити на N воркерах, на сторінці Nodes вимкни (Disable) зайвих.
 3. **Add Job**: Solution File = `solver.py` (або `solver_seq.py` для послідовної версії), Input File = `input.zip` → Submit.
 4. **Jobs** → коли з'явиться Duration, натисни **Output**: час кожного етапу (рядок `TOTAL`), навантаження кожного воркера, топ слів.
 
@@ -136,9 +137,18 @@ gcloud compute firewall-rules delete parcs-ui --quiet
 - **Воркерів немає у списку.** Зачекай ще хвилину. Логи: `gcloud compute ssh worker-1 --command "docker logs parcs 2>&1 | tail"` і `gcloud compute ssh worker-1 --command "sudo journalctl -u google-startup-scripts | tail"`.
 - **`Quota 'IN_USE_ADDRESSES' exceeded`** (у free trial буває ліміт зовнішніх IP). Створи воркерів з `--no-address` і додай Cloud NAT, щоб вони могли завантажити Docker-образ:
   ```bash
-  gcloud compute routers create parcs-router --network=default --region=europe-north1
-  gcloud compute routers nats create parcs-nat --router=parcs-router --region=europe-north1 \
+  gcloud compute routers create parcs-router --network=default --region=europe-west1
+  gcloud compute routers nats create parcs-nat --router=parcs-router --region=europe-west1 \
     --auto-allocate-nat-external-ips --nat-all-subnet-ip-ranges
+  ```
+- **`ZONE_RESOURCE_POOL_EXHAUSTED`** (у зоні закінчилися вільні машини). Створи master у першій зоні, де є місце, і зроби її основною; воркери потім створюй звичайною командою, вони потраплять у ту саму зону:
+  ```bash
+  for z in europe-west1-b europe-west1-c europe-west4-a europe-north1-a us-central1-a; do
+    gcloud compute instances create master --zone=$z --machine-type=n1-standard-1 \
+      --image-family=cos-stable --image-project=cos-cloud --tags=parcs-master \
+      --metadata-from-file=startup-script=cloud/startup.sh --metadata=parcs-args=master \
+      && gcloud config set compute/zone $z && break
+  done
   ```
 - **`Quota 'CPUS' exceeded`.** Використовуй `n1-standard-1` (1 vCPU) і видали інші ВМ у проєкті.
 - **Job завершився з помилкою.** Причина видно на сторінці Jobs; найчастіше на вхід подано не ZIP.
@@ -147,18 +157,25 @@ gcloud compute firewall-rules delete parcs-ui --quiet
 
 ## 4. Результати
 
-Конфігурація: 5 ВМ `n1-standard-1` (1 vCPU, 3,75 ГБ), зона `europe-north1-a`; вхід — ДОПИШИ: кількість файлів і МБ тексту з рядка `files:` у виводі job.
+Конфігурація: 5 ВМ `n1-standard-1` (1 vCPU, 3,75 ГБ), зона `europe-west1-b`. Вхід: 124 файли (62 книжки з Project Gutenberg × 2 копії), 130,3 МБ тексту, ZIP-архів 48,4 МБ. Кожну конфігурацію запущено 3 рази.
 
 <!-- RESULTS:START -->
 | Конфігурація | Воркерів | Час, с | Прискорення S = T<sub>seq</sub> / T<sub>N</sub> | Ефективність E = S / N |
 |---|:---:|---:|---:|---:|
-| послідовно (лише master) | - | … | 1.00 | - |
-| паралельно (PARCS) | 1 | … | … | … |
-| паралельно (PARCS) | 2 | … | … | … |
-| паралельно (PARCS) | 3 | … | … | … |
-| паралельно (PARCS) | 4 | … | … | … |
+| послідовно (лише master) | - | 19.50 | 1.00 | - |
+| паралельно (PARCS) | 1 | 19.77 | 0.99 | 0.99 |
+| паралельно (PARCS) | 2 | 10.95 | 1.78 | 0.89 |
+| паралельно (PARCS) | 3 | 7.87 | 2.48 | 0.83 |
+| паралельно (PARCS) | 4 | 6.47 | 3.01 | 0.75 |
+
+_Час - середнє з 3 запуск(ів) кожної конфігурації._
 <!-- RESULTS:END -->
 
 ![Залежність часу виконання і прискорення від кількості воркерів](results/plot.png)
 
-**Висновки.** ДОПИШИ після вимірів, наприклад: зі збільшенням кількості воркерів час MAP зменшується майже пропорційно; паралельна версія на 1 воркері трохи повільніша за послідовну через передачу тексту мережею; прискорення на 4 воркерах менше за 4 через послідовні етапи SPLIT і REDUCE (закон Амдала).
+**Висновки.**
+
+- Паралельна версія добре масштабується: на 4 воркерах 130 МБ тексту обробляються за 6,5 с замість 19,5 с послідовно. Це прискорення 3,0× з ефективністю 75 %.
+- На 1 воркері паралельна версія трохи повільніша за послідовну (19,8 с проти 19,5 с): додаються передача тексту мережею і накладні витрати RPC.
+- Етап MAP скорочується майже пропорційно кількості воркерів (18,8 → 9,9 → 6,8 → 5,3 с), а SPLIT і REDUCE разом займають близько 1 с за будь-якого N. Ця послідовна частина становить ≈5 % часу, тож за законом Амдала межа для 4 воркерів ≈3,5×; решту різниці до фактичних 3,0× забирають передача даних і невелика нерівномірність навантаження всередині MAP.
+- Кожен наступний воркер дає менший виграш: перехід з 2 на 3 воркери скорочує час на 3,1 с, а з 3 на 4 — лише на 1,4 с.
